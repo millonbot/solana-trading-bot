@@ -1,0 +1,42 @@
+{
+  "name": "solana-institutional-trading-bot",
+  "version": "1.0.0",
+  "description": "Bot de trading institucional para Solana con análisis de order flow y GPT-5",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "dev": "nodemon src/bot.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "dependencies": {
+    "openai": "^4.28.0",
+    "@azure/cosmos": "^4.0.0",
+    "@solana/web3.js": "^1.87.6",
+    "@solana/spl-token": "^0.3.9",
+    "node-telegram-bot-api": "^0.66.0",
+    "axios": "^1.6.7",
+    "express": "^4.18.2",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TU_USERNAME/solana-trading-bot.git"
+  },
+  "keywords": [
+    "solana",
+    "trading",
+    "bot",
+    "cryptocurrency",
+    "azure",
+    "gpt",
+    "orderflow"
+  ],
+  "author": "Tu Nombre",
+  "license": "MIT"
+}
