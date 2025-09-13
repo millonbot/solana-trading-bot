@@ -1,5 +1,5 @@
 # Solana Institutional Trading Bot - Dockerfile
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Crear directorio de trabajo
 WORKDIR /app
