@@ -1,4 +1,4 @@
-name: Build and Deploy to Azure
+name: build-and-deploy
 
 on:
   push:
@@ -8,35 +8,25 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Checkout repo
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Login to Azure
-      - name: Azure Login
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 3. Login to Azure Container Registry
-      - name: Docker login
-        run: |
-          echo ${{ secrets.SOLANATRADINGBOT_REGISTRY_PASSWORD }} | docker login solanatradingreg.azurecr.io \
-            -u ${{ secrets.SOLANATRADINGBOT_REGISTRY_USERNAME }} --password-stdin
-
-      # 4. Build and push Docker image
-      - name: Build and Push image
-        run: |
-          docker build -t solanatradingreg.azurecr.io/solana-trading-bot:latest .
-          docker push solanatradingreg.azurecr.io/solana-trading-bot:latest
-
-      # 5. Deploy to Azure Container App
-      - name: Deploy to Azure Container App
+      - name: Build and push Docker image
         uses: azure/container-apps-deploy-action@v2
         with:
-          acrName: solanatradingreg
-          containerAppName: solana-trading-bot
-          resourceGroup: rg-bot
-          imageToDeploy: solanatradingreg.azurecr.io/solana-trading-bot:latest
+          appSourcePath: .
+          acrName: solanatradingreg                # 👈 tu Azure Container Registry (ACR)
+          registryUsername: ${{ secrets.SOLANATRADINGBOT_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.SOLANATRADINGBOT_REGISTRY_PASSWORD }}
+          azureCredentials: ${{ secrets.AZURE_CREDENTIALS }}
+          imageToBuild: solanatradingreg.azurecr.io/solana-trading-bot:${{ github.sha }}
+          dockerfilePath: ./Dockerfile             # 👈 tu Dockerfile
+          containerAppName: solana-trading-bot     # 👈 el nombre del Container App
+          resourceGroup: rg-bot                    # 👈 tu resource group en Azure
+          containerAppEnvironment: env-bot         # 👈 el environment del container
