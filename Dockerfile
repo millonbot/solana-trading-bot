@@ -33,4 +33,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD ["node","-e","const http=require('http'); const port=process.env.PORT||8080; const req=http.request({ host: '127.0.0.1', port, path: '/health', timeout: 2000 }, res => { process.exit(res.statusCode===200?0:1); }); req.on('error', () => process.exit(1)); req.end(); setTimeout(() => process.exit(1), 2500);"]
 
 # Comando de inicio
-CMD ["npm", "start"]
+CMD ["node", "src/index.js"]
+
