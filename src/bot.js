@@ -9,7 +9,39 @@ const { Connection, PublicKey } = require("@solana/web3.js");
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const express = require('express');
+const WebSocket = require('ws');
 
+// ======== Función para conectarse a SolanaStreaming ========
+function connectSolanaStreaming(apiKey, handleMessage) {
+  const ws = new WebSocket('wss://api.solanastreaming.com/', {
+    headers: { 'X-API-KEY': apiKey }
+  });
+
+  ws.on('open', () => {
+    // Suscribirse a eventos de creación de nuevos pares
+    ws.send(JSON.stringify({ id: 1, method: 'newPairSubscribe' }));
+  });
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      handleMessage(msg);
+    } catch (err) {
+      console.error('Error al parsear mensaje de SolanaStreaming:', err);
+    }
+  });
+
+  ws.on('error', (err) => {
+    console.error('Error en WebSocket de SolanaStreaming:', err);
+  });
+
+  ws.on('close', () => {
+    console.log('WebSocket cerrado; reconectando en 5 segundos...');
+    setTimeout(() => connectSolanaStreaming(apiKey, handleMessage), 5000);
+  });
+}
+
+// ======== Clase principal del bot ========
 class InstitutionalTradingBot {
   constructor() {
     // Azure OpenAI (GPT-5-mini)
@@ -45,13 +77,13 @@ class InstitutionalTradingBot {
       MIN_BUYERS_ZSCORE: 2.0,
       MIN_WHALE_COUNT: 2,
       WHALE_THRESHOLD_USD: 1000,
-      
+
       // Risk Management
       STOP_LOSS: 0.12,
       TAKE_PROFITS: [0.25, 0.60, 1.60],
       TRAILING_STOP_CAP: 0.25,
       TIME_STOP_SECONDS: 120,
-      
+
       // Position Sizing
       MAX_POSITION_PCT: 0.007,
       MIN_POSITION_USD: 150,
@@ -68,6 +100,23 @@ class InstitutionalTradingBot {
       lastAnalysis: null
     };
 
+    // ======== Iniciar SolanaStreaming ========
+    const solanaApiKey = process.env.SOLANASTREAMING_API_KEY;
+    connectSolanaStreaming(solanaApiKey, (event) => {
+      // Procesar nuevas notificaciones de pares o swaps
+      const tokenAddress = event?.params?.pair?.baseToken?.account;
+      if (tokenAddress) {
+        this.analyzeToken(tokenAddress, false)
+          .then((decision) => {
+            console.log('Análisis automático de nuevo par:', tokenAddress, decision);
+          })
+          .catch((err) => {
+            console.error('Error analizando nuevo par', tokenAddress, err);
+          });
+      }
+    });
+
+    // Configurar comandos de Telegram y arrancar servidor web
     this.setupTelegramCommands();
     this.startWebServer();
   }
@@ -77,8 +126,8 @@ class InstitutionalTradingBot {
   // ===================================
   async analyzeToken(tokenAddress, forcedAnalysis = false) {
     try {
-      console.log(`🧠 [INSTITUCIONAL] Analizando: ${tokenAddress}`);
-      
+      console.log(`[INSTITUCIONAL] Analizando: ${tokenAddress}`);
+
       // 1. OBTENER DATOS REAL-TIME
       const realTimeData = await this.getRealTimeOrderFlow(tokenAddress);
       if (!realTimeData) {
@@ -93,20 +142,20 @@ class InstitutionalTradingBot {
 
       // 3. MÉTRICAS CUANTITATIVAS
       const quantMetrics = await this.calculateQuantMetrics(realTimeData);
-      
+
       // 4. GPT-5-MINI COMO ÁRBITRO INSTITUCIONAL
       const gptDecision = await this.performInstitutionalGPTAnalysis(quantMetrics);
-      
+
       // 5. MÁQUINA DE ESTADOS (FSM)
       const finalDecision = await this.executeTradingFSM(gptDecision, quantMetrics);
-      
+
       // 6. GUARDAR ANÁLISIS
       await this.saveAnalysis(tokenAddress, finalDecision, quantMetrics);
-      
+
       return finalDecision;
-      
+
     } catch (error) {
-      console.error("❌ Error en análisis institucional:", error);
+      console.error("Error en análisis institucional:", error);
       return { action: "ERROR", reason: error.message };
     }
   }
@@ -136,7 +185,7 @@ class InstitutionalTradingBot {
           if (!tx || !tx.meta) continue;
 
           const analysis = this.analyzeTx(tx, tokenAddress);
-          
+
           if (analysis.type === 'BUY') {
             buyVolume += analysis.volume;
             uniqueBuyers.add(analysis.wallet);
@@ -150,7 +199,7 @@ class InstitutionalTradingBot {
           if (analysis.volume >= this.config.WHALE_THRESHOLD_USD) {
             whaleTransactions.push(analysis);
           }
-        } catch (err) {
+        } catch {
           continue;
         }
       }
@@ -174,7 +223,7 @@ class InstitutionalTradingBot {
         impact_estimate: this.estimatePriceImpact(totalVolume, priceData.liquidity)
       };
     } catch (error) {
-      console.error("❌ Error obteniendo order flow:", error);
+      console.error("Error obteniendo order flow:", error);
       return null;
     }
   }
@@ -183,11 +232,10 @@ class InstitutionalTradingBot {
   // VALIDAR FILTROS INSTITUCIONALES
   // ===================================
   async validateInstitutionalFilters(data) {
-    // Filtro A: Liquidez/Pool
     if (data.liquidity_usd < this.config.MIN_LIQUIDITY_USD) {
       return { passed: false, reason: "Liquidez insuficiente" };
     }
-    
+
     if (data.impact_estimate > this.config.MAX_PRICE_IMPACT) {
       return { passed: false, reason: "Price impact alto" };
     }
@@ -196,7 +244,6 @@ class InstitutionalTradingBot {
       return { passed: false, reason: "Spread demasiado alto" };
     }
 
-    // Verificar authorities del token
     const tokenInfo = await this.checkTokenAuthorities(data.token);
     if (tokenInfo.mintAuthority || tokenInfo.freezeAuthority) {
       return { passed: false, reason: "Authorities activas - riesgo de rug" };
@@ -209,19 +256,12 @@ class InstitutionalTradingBot {
   // CALCULAR MÉTRICAS CUANTITATIVAS
   // ===================================
   async calculateQuantMetrics(data) {
-    // Delta buy (ratio compra/venta)
     const delta_buy = data.buy_usd_10s / Math.max(1, data.sell_usd_10s);
-    
-    // Z-score de compradores únicos (simulado por ahora)
     const buyers_baseline = { mean: 20, std: 8 };
     const buyers_z = (data.unique_buyers_10s - buyers_baseline.mean) / buyers_baseline.std;
-    
-    // Actividad de whales
     const whale_count = data.whale_ins ? data.whale_ins.length : 0;
-    
-    // Evaluación de top wallet (simulado)
     const top_wallet_ok = whale_count > 0 && delta_buy > 1.5;
-    
+
     return {
       delta_buy,
       buyers_z,
@@ -239,9 +279,9 @@ class InstitutionalTradingBot {
   async performInstitutionalGPTAnalysis(metrics) {
     try {
       const prompt = this.buildInstitutionalPrompt(metrics);
-      
+
       const response = await this.openAI.chat.completions.create({
-        model: "gpt-4", // Usar el deployment name exacto
+        model: "gpt-4",
         messages: [
           {
             role: "system",
@@ -262,23 +302,23 @@ Salida: {"action":"BUY|HOLD|SKIP","confidence":1-10,"reasoning":"...","position_
       });
 
       const analysis = response.choices[0].message.content;
-      
+
       try {
         return JSON.parse(analysis);
-      } catch (parseError) {
-        console.warn("⚠️ GPT response not valid JSON");
-        return { 
-          action: "HOLD", 
-          confidence: 5, 
+      } catch {
+        console.warn("Respuesta de GPT no es JSON válido");
+        return {
+          action: "HOLD",
+          confidence: 5,
           reasoning: "GPT parsing error",
           position_size_usd: this.config.MIN_POSITION_USD
         };
       }
     } catch (error) {
-      console.error("❌ Error en análisis GPT:", error);
-      return { 
-        action: "ERROR", 
-        confidence: 0, 
+      console.error("Error en análisis GPT:", error);
+      return {
+        action: "ERROR",
+        confidence: 0,
         reasoning: error.message,
         position_size_usd: 0
       };
@@ -293,82 +333,82 @@ Salida: {"action":"BUY|HOLD|SKIP","confidence":1-10,"reasoning":"...","position_
     this.telegramBot.onText(/\/analyze (.+)/, async (msg, match) => {
       const chatId = msg.chat.id;
       const tokenAddress = match[1];
-      
-      await this.telegramBot.sendMessage(chatId, `🧠 Analizando token: ${tokenAddress}...`);
-      
+
+      await this.telegramBot.sendMessage(chatId, `Analizando token: ${tokenAddress}...`);
+
       try {
         const analysis = await this.analyzeToken(tokenAddress, true);
-        
+
         const message = `
-📊 **ANÁLISIS INSTITUCIONAL**
+**ANÁLISIS INSTITUCIONAL**
 Token: \`${tokenAddress}\`
 
-🎯 **Decisión**: ${analysis.action}
-📈 **Confianza**: ${analysis.confidence}/10
-💰 **Tamaño posición**: $${analysis.position_size_usd || 0}
+**Decisión**: ${analysis.action}
+**Confianza**: ${analysis.confidence}/10
+**Tamaño posición**: $${analysis.position_size_usd || 0}
 
-📝 **Razón**: ${analysis.reasoning}
+**Razón**: ${analysis.reasoning}
 
-🔢 **Métricas**:
+**Métricas**:
 • Delta Buy/Sell: ${analysis.delta_buy?.toFixed(2) || 'N/A'}
-• Buyers Z-Score: ${analysis.buyers_z?.toFixed(2) || 'N/A'}  
+• Buyers Z-Score: ${analysis.buyers_z?.toFixed(2) || 'N/A'}
 • Whale Count: ${analysis.whale_count || 0}
 • Signal Strength: ${analysis.signal_strength || 0}/10
 
-⏱️ ${new Date().toLocaleString()}
+${new Date().toLocaleString()}
         `;
-        
+
         await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-        
+
       } catch (error) {
-        await this.telegramBot.sendMessage(chatId, `❌ Error: ${error.message}`);
+        await this.telegramBot.sendMessage(chatId, `Error: ${error.message}`);
       }
     });
 
     // Comando de estadísticas
     this.telegramBot.onText(/\/stats/, async (msg) => {
       const chatId = msg.chat.id;
-      
+
       const message = `
-📊 **ESTADÍSTICAS DEL BOT**
+**ESTADÍSTICAS DEL BOT**
 
-🤖 **Estado**: ${this.isRunning ? '🟢 Activo' : '🔴 Inactivo'}
-📈 **Total Trades**: ${this.stats.totalTrades}
-🎯 **Win Rate**: ${this.stats.winRate}%
-💰 **PnL Total**: $${this.stats.totalPnL}
-💼 **Equity**: $${this.config.EQUITY_USD}
+Estado: ${this.isRunning ? 'Activo' : 'Inactivo'}
+Total Trades: ${this.stats.totalTrades}
+Win Rate: ${this.stats.winRate}%
+PnL Total: $${this.stats.totalPnL}
+Equity: $${this.config.EQUITY_USD}
 
-🔧 **Configuración**:
+Configuración:
 • Min Liquidez: $${this.config.MIN_LIQUIDITY_USD}
 • Stop Loss: ${this.config.STOP_LOSS * 100}%
 • Max Position: ${this.config.MAX_POSITION_PCT * 100}%
 
-⏱️ Última actualización: ${new Date().toLocaleString()}
+Última actualización: ${new Date().toLocaleString()}
       `;
-      
+
       await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
     });
 
     // Comando de help
     this.telegramBot.onText(/\/help/, async (msg) => {
       const chatId = msg.chat.id;
-      
-      const message = `
-🤖 **SOLANA TRADING BOT INSTITUCIONAL**
 
-📋 **Comandos disponibles**:
+      const message = `
+**SOLANA TRADING BOT INSTITUCIONAL**
+
+Comandos disponibles:
 
 \`/analyze [token_address]\` - Analizar token específico
-\`/stats\` - Ver estadísticas del bot  
+\`/stats\` - Ver estadísticas del bot
 \`/help\` - Mostrar ayuda
 \`/start\` - Iniciar el bot
 \`/stop\` - Detener el bot
 
-🔥 **Estrategia**: Order Flow + GPT-5-mini
-📊 **Mercado**: Solana recién migrados (Pump/Raydium)
-⚡ **Ejecución**: Análisis institucional en tiempo real
+Estrategia: Order Flow + GPT-5-mini
+Mercado: Solana recién migrados (Pump/Raydium)
+Ejecución: Análisis institucional en tiempo real
       `;
-      
+
       await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
     });
   }
@@ -377,8 +417,6 @@ Token: \`${tokenAddress}\`
   // MÉTODOS AUXILIARES
   // ===================================
   analyzeTx(tx, tokenAddress) {
-    // Análisis básico de transacción
-    // En producción: implementar parser completo de logs
     return {
       wallet: tx.transaction.message.accountKeys[0].toString(),
       type: Math.random() > 0.5 ? 'BUY' : 'SELL',
@@ -391,14 +429,14 @@ Token: \`${tokenAddress}\`
     try {
       const response = await axios.get(`https://price.jup.ag/v4/price?ids=${tokenAddress}`);
       const data = response.data;
-      
+
       return {
         price: data.data[tokenAddress]?.price || 0,
         priceChange24h: data.data[tokenAddress]?.priceChange24h || 0,
-        liquidity: Math.random() * 100000, // Placeholder
+        liquidity: Math.random() * 100000,
         spread: Math.random() * 0.02
       };
-    } catch (error) {
+    } catch {
       return { price: 0, priceChange24h: 0, liquidity: 0, spread: 0.02 };
     }
   }
@@ -411,24 +449,21 @@ Token: \`${tokenAddress}\`
   async checkTokenAuthorities(tokenAddress) {
     try {
       const tokenInfo = await this.solanaConnection.getParsedAccountInfo(new PublicKey(tokenAddress));
-      // Simplificado - en producción implementar parsing completo
       return {
         mintAuthority: null,
         freezeAuthority: null
       };
-    } catch (error) {
+    } catch {
       return { mintAuthority: null, freezeAuthority: null };
     }
   }
 
   calculateSignalStrength(delta_buy, buyers_z, whale_count) {
     let strength = 0;
-    
     if (delta_buy >= 2.0) strength += 3;
     if (buyers_z >= 2.0) strength += 2;
     if (whale_count >= 2) strength += 3;
     if (delta_buy >= 3.0) strength += 2;
-    
     return Math.min(strength, 10);
   }
 
@@ -465,9 +500,9 @@ Decide: BUY/HOLD/SKIP con razonamiento institucional.
       };
 
       await this.container.items.create(document);
-      console.log("✅ Análisis guardado en Cosmos DB");
+      console.log("Análisis guardado en Cosmos DB");
     } catch (error) {
-      console.error("❌ Error guardando análisis:", error);
+      console.error("Error guardando análisis:", error);
     }
   }
 
@@ -480,7 +515,7 @@ Decide: BUY/HOLD/SKIP con razonamiento institucional.
 
     // Health check
     app.get('/health', (req, res) => {
-      res.json({ 
+      res.json({
         status: 'healthy',
         bot_running: this.isRunning,
         timestamp: new Date().toISOString()
@@ -495,7 +530,7 @@ Decide: BUY/HOLD/SKIP con razonamiento institucional.
 
     const port = process.env.PORT || 8080;
     app.listen(port, () => {
-      console.log(`🚀 Bot server running on port ${port}`);
+      console.log(`Bot server running on port ${port}`);
     });
   }
 }
@@ -505,19 +540,19 @@ Decide: BUY/HOLD/SKIP con razonamiento institucional.
 // ===================================
 async function startBot() {
   try {
-    console.log("🚀 Iniciando Solana Institutional Trading Bot...");
-    
+    console.log("Iniciando Solana Institutional Trading Bot...");
+
     const bot = new InstitutionalTradingBot();
-    
+
     // Configurar webhook de Telegram
     const webhookUrl = `${process.env.WEBHOOK_URL}/bot${process.env.TELEGRAM_BOT_TOKEN}`;
     await bot.telegramBot.setWebHook(webhookUrl);
-    
-    console.log("✅ Bot iniciado correctamente");
-    console.log("🔗 Webhook configurado:", webhookUrl);
-    
+
+    console.log("Bot iniciado correctamente");
+    console.log("Webhook configurado:", webhookUrl);
+
   } catch (error) {
-    console.error("❌ Error iniciando bot:", error);
+    console.error("Error iniciando bot:", error);
     process.exit(1);
   }
 }
