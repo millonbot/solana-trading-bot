@@ -9,39 +9,40 @@ env:
   AZURE_CONTAINER_APP_NAME: solana-trading-bot
   AZURE_RESOURCE_GROUP: rg-bot
   AZURE_REGISTRY: solanatradingreg.azurecr.io
+  AZURE_CORE_OUTPUT: none
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-    
-    - name: Login to Azure Container Registry
-      uses: azure/docker-login@v1
-      with:
-        login-server: solanatradingreg.azurecr.io
-        username: ${{ secrets.REGISTRY_USERNAME }}
-        password: ${{ secrets.REGISTRY_PASSWORD }}
-    
-    - name: Build and push container image
-      run: |
-        docker build . -t solanatradingreg.azurecr.io/solana-trading-bot:${{ github.sha }}
-        docker build . -t solanatradingreg.azurecr.io/solana-trading-bot:latest
-        docker push solanatradingreg.azurecr.io/solana-trading-bot:${{ github.sha }}
-        docker push solanatradingreg.azurecr.io/solana-trading-bot:latest
-    
-    - name: Deploy to Container Apps
-      uses: azure/CLI@v1
-      with:
-        inlineScript: |
-          az config set extension.use_dynamic_install=yes_without_prompt
-          az containerapp update \
-            --name solana-trading-bot \
-            --resource-group rg-bot \
-            --image solanatradingreg.azurecr.io/solana-trading-bot:${{ github.sha }}
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry
+        uses: azure/docker-login@v2
+        with:
+          login-server: ${{ env.AZURE_REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push container image
+        run: |
+          docker build . -t $AZURE_REGISTRY/solana-trading-bot:${{ github.sha }}
+          docker build . -t $AZURE_REGISTRY/solana-trading-bot:latest
+          docker push $AZURE_REGISTRY/solana-trading-bot:${{ github.sha }}
+          docker push $AZURE_REGISTRY/solana-trading-bot:latest
+
+      - name: Deploy to Container Apps
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp update \
+              --name $AZURE_CONTAINER_APP_NAME \
+              --resource-group $AZURE_RESOURCE_GROUP \
+              --image $AZURE_REGISTRY/solana-trading-bot:${{ github.sha }}
