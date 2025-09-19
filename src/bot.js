@@ -61,6 +61,9 @@ class InstitutionalTradingBot {
     this.database = this.cosmos.database("SolanaTrading");
     this.container = this.database.container("TradingData");
 
+    // Inicializar TradingModeSelector
+    this.tradingMode = new TradingModeSelector();
+
     // Usar la conexión de Solana del TradingModeSelector
     this.solanaConnection = this.tradingMode.solanaConnection;
 
