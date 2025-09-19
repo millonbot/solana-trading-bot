@@ -92,7 +92,7 @@ class InstitutionalTradingBot {
     const solanaApiKey = process.env.SOLANASTREAMING_API_KEY;
     connectSolanaStreaming(solanaApiKey, (event) => {
       const tokenAddress = event?.params?.pair?.baseToken?.account;
-      if (tokenAddress) {
+      if (tokenAddress && this.isRunning) {
         this.analyzeToken(tokenAddress, false)
           .then((decision) => {
             console.log('Análisis automático de nuevo par:', tokenAddress, decision);
@@ -100,6 +100,8 @@ class InstitutionalTradingBot {
           .catch((err) => {
             console.error('Error analizando nuevo par', tokenAddress, err);
           });
+      } else if (tokenAddress && !this.isRunning) {
+        console.log('Bot pausado - omitiendo análisis de token:', tokenAddress);
       }
     });
 
@@ -166,10 +168,50 @@ Comandos:
 \`/analyze [token]\`
 \`/stats\`
 \`/help\`
-\`/start\`
-\`/stop\`
+\`/start\` - Activar el bot
+\`/stop\` - Desactivar el bot
+\`/run\` - Ejecutar análisis (alias de start)
       `;
       await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    });
+
+    this.telegramBot.onText(/\/start/, async (msg) => {
+      const chatId = msg.chat.id;
+      this.isRunning = true;
+      const message = `
+🟢 **BOT ACTIVADO**
+El bot está ahora ejecutándose y analizando tokens automáticamente.
+Estado: Activo ✅
+Timestamp: ${new Date().toLocaleString()}
+      `;
+      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+      console.log('Bot activado vía Telegram por usuario:', msg.from?.username || msg.from?.id);
+    });
+
+    this.telegramBot.onText(/\/stop/, async (msg) => {
+      const chatId = msg.chat.id;
+      this.isRunning = false;
+      const message = `
+🔴 **BOT DESACTIVADO**
+El bot ha sido pausado y no realizará análisis automáticos.
+Estado: Inactivo ⏸️
+Timestamp: ${new Date().toLocaleString()}
+      `;
+      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+      console.log('Bot desactivado vía Telegram por usuario:', msg.from?.username || msg.from?.id);
+    });
+
+    this.telegramBot.onText(/\/run/, async (msg) => {
+      const chatId = msg.chat.id;
+      this.isRunning = true;
+      const message = `
+⚡ **BOT EJECUTÁNDOSE**
+Comando 'run' ejecutado exitosamente.
+Estado: Activo y ejecutando análisis ✅
+Timestamp: ${new Date().toLocaleString()}
+      `;
+      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+      console.log('Bot ejecutado vía comando /run por usuario:', msg.from?.username || msg.from?.id);
     });
   }
 
