@@ -27,29 +27,40 @@ jobs:
           az account show --output table
         shell: bash
 
-
       - name: Configure Container App secrets (safe)
+        # Only access secrets when not a forked pull request (secrets are unavailable to forked PRs)
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: azure/cli@v1
         with:
           inlineScript: |
             set -e
             az extension add --name containerapp --upgrade -y
             declare -a SECRETS
-            if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ]; then SECRETS+=("telegram-bot-token=${{ secrets.TELEGRAM_BOT_TOKEN }}"); fi
-            if [ -n "${{ secrets.TELEGRAM_WEBHOOK_URL }}" ]; then SECRETS+=("telegram-webhook-url=${{ secrets.TELEGRAM_WEBHOOK_URL }}"); fi
-            if [ -n "${{ secrets.COSMOS_DB_CONNECTION_STRING }}" ]; then SECRETS+=("cosmos-db-connection-string=${{ secrets.COSMOS_DB_CONNECTION_STRING }}"); fi
-            if [ -n "${{ secrets.SOLANA_RPC_URL }}" ]; then SECRETS+=("solana-rpc-url=${{ secrets.SOLANA_RPC_URL }}"); fi
-            if [ -n "${{ secrets.AZURE_OPENAI_KEY }}" ]; then SECRETS+=("azure-openai-key=${{ secrets.AZURE_OPENAI_KEY }}"); fi
+            if [ -n "$TELEGRAM_BOT_TOKEN" ]; then SECRETS+=("telegram-bot-token=$TELEGRAM_BOT_TOKEN"); fi
+            if [ -n "$TELEGRAM_WEBHOOK_URL" ]; then SECRETS+=("telegram-webhook-url=$TELEGRAM_WEBHOOK_URL"); fi
+            if [ -n "$COSMOS_DB_CONNECTION_STRING" ]; then SECRETS+=("cosmos-db-connection-string=$COSMOS_DB_CONNECTION_STRING"); fi
+            if [ -n "$SOLANA_RPC_URL" ]; then SECRETS+=("solana-rpc-url=$SOLANA_RPC_URL"); fi
+            if [ -n "$AZURE_OPENAI_KEY" ]; then SECRETS+=("azure-openai-key=$AZURE_OPENAI_KEY"); fi
             if [ ${#SECRETS[@]} -eq 0 ]; then
               echo "No secrets provided; skipping secret update."
               exit 0
             fi
             az containerapp secret set \
-              --name "${{ secrets.CONTAINERAPP_NAME }}" \
-              --resource-group "${{ secrets.RESOURCE_GROUP }}" \
+              --name "$CONTAINERAPP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
               --secrets "${SECRETS[@]}"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
+          COSMOS_DB_CONNECTION_STRING: ${{ secrets.COSMOS_DB_CONNECTION_STRING }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          CONTAINERAPP_NAME: ${{ secrets.CONTAINERAPP_NAME }}
+          RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
 
       - name: Build, Push, and Deploy to Azure Container Apps
+        # Also guard the deploy step that uses secrets/credentials
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: azure/container-apps-deploy-action@v1
         with:
           # Use explicit registry credentials from secrets
@@ -70,3 +81,5 @@ jobs:
             COSMOS_DB_CONNECTION_STRING=secretref:cosmos-db-connection-string
             SOLANA_RPC_URL=secretref:solana-rpc-url
             AZURE_OPENAI_KEY=secretref:azure-openai-key
+            AZURE_OPENAI_ENDPOINT=secretref:azure-openai-endpoint
+            DEPLOYMENT_NAME=secretref:deployment-name
