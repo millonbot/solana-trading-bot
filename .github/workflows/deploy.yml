@@ -34,7 +34,7 @@ jobs:
             --parameters '{
               "name": "github-actions-main-auto",
               "issuer": "https://token.actions.githubusercontent.com",
-              "subject": "repo:millonbot/solana-trading-bot:ref:refs/heads/main", 
+              "subject": "repo:david/solana-trading-bot:ref:refs/heads/main", 
               "audiences": ["api://AzureADTokenExchange"],
               "description": "Auto-created GitHub Actions OIDC for main branch"
             }' || echo "Federated credential may already exist or SP login failed"
@@ -84,7 +84,7 @@ jobs:
             az containerapp secret set \
               --name "${{ secrets.CONTAINERAPP_NAME }}" \
               --resource-group "${{ secrets.RESOURCE_GROUP }}" \
-              --secrets ${SECRETS[@]}
+              --secrets "${SECRETS[@]}"
 
       - name: Build, Push, and Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v1
