@@ -26,9 +26,23 @@ jobs:
             -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.TAG }} .
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
-      - name: Update Container App
+      - name: Wait for Container App to be ready
         run: |
-          az containerapp update \
-            -g "${{ secrets.RESOURCE_GROUP }}" \
-            -n "${{ secrets.CONTAINERAPP_NAME }}" \
-            --image "${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
+          for i in {1..15}; do
+            state=$(az containerapp show -g "${{ secrets.RESOURCE_GROUP }}" -n "${{ secrets.CONTAINERAPP_NAME }}" --query properties.provisioningState -o tsv || true)
+            echo "provisioningState=$state"
+            if [ "$state" = "Succeeded" ] || [ -z "$state" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "Timeout esperando Succeeded"; exit 1
+
+      - name: Update Container App (retry)
+        run: |
+          for i in 1 2 3; do
+            az containerapp update \
+              -g "${{ secrets.RESOURCE_GROUP }}" \
+              -n "${{ secrets.CONTAINERAPP_NAME }}" \
+              --image "${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}" && exit 0
+            echo "Retry $i..."; sleep 20
+          done
+          echo "Update failed after retries"; exit 1
