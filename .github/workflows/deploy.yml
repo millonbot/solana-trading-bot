@@ -96,7 +96,6 @@ jobs:
 
           appSourcePath: .
           dockerfilePath: ./Dockerfile
-          imageToBuild: ${{ secrets.ACR_LOGIN_SERVER }}/solana-trading-bot:${{ github.sha }}
           containerAppName: ${{ secrets.CONTAINERAPP_NAME }}
           resourceGroup: ${{ secrets.RESOURCE_GROUP }}
           targetPort: 3000
