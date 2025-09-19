@@ -95,6 +95,9 @@ class InstitutionalTradingBot {
       onMigrationDetected: (migrationData) => this.handleNewMigration(migrationData)
     });
 
+    // Inicializar Telegram Bot
+    this.telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
+
     // ===== COMANDOS TELEGRAM BÁSICOS MANTENIDOS =====
     this.setupBasicTelegramCommands();
     this.startWebServer();
