@@ -1,0 +1,69 @@
+name: Configure OIDC Federated Identity
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: 'Azure App Registration ID (Client ID)'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  configure-oidc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Azure Login (SP for configuration)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure Federated Identity Credential
+        run: |
+          echo "Configuring OIDC Federated Identity Credential..."
+          
+          # Create federated identity credential for main branch
+          az ad app federated-credential create \
+            --id ${{ github.event.inputs.app_id }} \
+            --parameters '{
+              "name": "github-actions-main",
+              "issuer": "https://token.actions.githubusercontent.com",
+              "subject": "repo:millonbot/solana-trading-bot:ref:refs/heads/main",
+              "audiences": ["api://AzureADTokenExchange"],
+              "description": "GitHub Actions OIDC for main branch"
+            }'
+          
+          # Also create for pull requests (optional)
+          az ad app federated-credential create \
+            --id ${{ github.event.inputs.app_id }} \
+            --parameters '{
+              "name": "github-actions-pr",
+              "issuer": "https://token.actions.githubusercontent.com", 
+              "subject": "repo:millonbot/solana-trading-bot:pull_request",
+              "audiences": ["api://AzureADTokenExchange"],
+              "description": "GitHub Actions OIDC for pull requests"
+            }' || echo "PR credential may already exist"
+
+      - name: Verify OIDC Configuration
+        run: |
+          echo "Listing federated credentials for app..."
+          az ad app federated-credential list --id ${{ github.event.inputs.app_id }} --output table
+
+      - name: Test OIDC Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify OIDC Success
+        run: |
+          echo "OIDC login successful! Current account:"
+          az account show --output table
