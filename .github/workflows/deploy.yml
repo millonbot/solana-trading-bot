@@ -18,6 +18,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      - name: Ensure OIDC Federated Identity exists
+        uses: azure/login@v2
+        continue-on-error: true
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create OIDC Federated Identity if missing
+        continue-on-error: true
+        run: |
+          echo "Ensuring OIDC federated identity credential exists..."
+          az ad app federated-credential create \
+            --id ${{ secrets.AZURE_CLIENT_ID }} \
+            --parameters '{
+              "name": "github-actions-main-auto",
+              "issuer": "https://token.actions.githubusercontent.com",
+              "subject": "repo:millonbot/solana-trading-bot:ref:refs/heads/main", 
+              "audiences": ["api://AzureADTokenExchange"],
+              "description": "Auto-created GitHub Actions OIDC for main branch"
+            }' || echo "Federated credential may already exist or SP login failed"
+
       - name: Azure Login (OIDC)
         id: oidc_login
         uses: azure/login@v2
@@ -28,8 +49,8 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure Login (SP JSON fallback)
+        if: steps.oidc_login.outcome == 'failure'
         uses: azure/login@v2
-        continue-on-error: true
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
