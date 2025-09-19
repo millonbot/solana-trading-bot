@@ -39,7 +39,7 @@ jobs:
             if [ -n "${{ secrets.TELEGRAM_WEBHOOK_URL }}" ]; then SECRETS+=("telegram-webhook-url=${{ secrets.TELEGRAM_WEBHOOK_URL }}"); fi
             if [ -n "${{ secrets.COSMOS_DB_CONNECTION_STRING }}" ]; then SECRETS+=("cosmos-db-connection-string=${{ secrets.COSMOS_DB_CONNECTION_STRING }}"); fi
             if [ -n "${{ secrets.SOLANA_RPC_URL }}" ]; then SECRETS+=("solana-rpc-url=${{ secrets.SOLANA_RPC_URL }}"); fi
-            if [ -n "${{ secrets.AZURE_OPENAI_KEY }}" ]; then SECRETS+=("azure-openai-api-key=${{ secrets.AZURE_OPENAI_KEY }}"); fi
+            if [ -n "${{ secrets.AZURE_OPENAI_KEY }}" ]; then SECRETS+=("azure-openai-key=${{ secrets.AZURE_OPENAI_KEY }}"); fi
             if [ ${#SECRETS[@]} -eq 0 ]; then
               echo "No secrets provided; skipping secret update."
               exit 0
@@ -69,4 +69,4 @@ jobs:
             TELEGRAM_WEBHOOK_URL=secretref:telegram-webhook-url
             COSMOS_DB_CONNECTION_STRING=secretref:cosmos-db-connection-string
             SOLANA_RPC_URL=secretref:solana-rpc-url
-            AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key
+            AZURE_OPENAI_KEY=secretref:azure-openai-key
