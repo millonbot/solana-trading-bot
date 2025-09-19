@@ -40,7 +40,9 @@ jobs:
             if [ -n "$TELEGRAM_WEBHOOK_URL" ]; then SECRETS+=("telegram-webhook-url=$TELEGRAM_WEBHOOK_URL"); fi
             if [ -n "$COSMOS_DB_CONNECTION_STRING" ]; then SECRETS+=("cosmos-db-connection-string=$COSMOS_DB_CONNECTION_STRING"); fi
             if [ -n "$SOLANA_RPC_URL" ]; then SECRETS+=("solana-rpc-url=$SOLANA_RPC_URL"); fi
-            if [ -n "$AZURE_OPENAI_KEY" ]; then SECRETS+=("azure-openai-key=$AZURE_OPENAI_KEY"); fi
+            if [ -n "$AZURE_OPENAI_API_KEY" ]; then SECRETS+=("azure-openai-api-key=$AZURE_OPENAI_API_KEY"); fi
+            if [ -n "$AZURE_OPENAI_ENDPOINT" ]; then SECRETS+=("azure-openai-endpoint=$AZURE_OPENAI_ENDPOINT"); fi
+            if [ -n "$DEPLOYMENT_NAME" ]; then SECRETS+=("deployment-name=$DEPLOYMENT_NAME"); fi
             if [ ${#SECRETS[@]} -eq 0 ]; then
               echo "No secrets provided; skipping secret update."
               exit 0
@@ -54,7 +56,9 @@ jobs:
           TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
           COSMOS_DB_CONNECTION_STRING: ${{ secrets.COSMOS_DB_CONNECTION_STRING }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
-          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          DEPLOYMENT_NAME: ${{ secrets.DEPLOYMENT_NAME }}
           CONTAINERAPP_NAME: ${{ secrets.CONTAINERAPP_NAME }}
           RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
 
