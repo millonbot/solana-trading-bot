@@ -1,0 +1,20 @@
+name: agent-pr
+on: workflow_dispatch
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Aquí el agente podría modificar archivos si hace falta.
+      # Por ahora, crea (o actualiza) un PR con lo que haya en el repo.
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          branch: agent/changes
+          title: "agent: proposed changes"
+          commit-message: "agent: apply changes"
+          body: "PR automático generado por el agente."
