@@ -28,8 +28,8 @@ jobs:
         with:
           inlineScript: |
             az containerapp secret set \
-              --name ${{ secrets.CONTAINER_APP_NAME }} \
-              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --name ${{ secrets.CONTAINERAPP_NAME }} \
+              --resource-group ${{ secrets.RESOURCE_GROUP }} \
               --secrets \
                 TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
                 TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }} \
@@ -39,11 +39,15 @@ jobs:
       - name: Build, Push, and Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v1
         with:
-          acrName: ${{ secrets.ACR_NAME }}
-          imageToBuild: ${{ secrets.ACR_NAME }}.azurecr.io/solana-trading-bot:${{ github.sha }}
+          # Use explicit registry credentials from secrets
+          registryUrl: ${{ secrets.ACR_LOGIN_SERVER }}
+          registryUsername: ${{ secrets.REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.REGISTRY_PASSWORD }}
+
+          imageToBuild: ${{ secrets.ACR_LOGIN_SERVER }}/solana-trading-bot:${{ github.sha }}
           dockerfilePath: ./Dockerfile
-          containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
-          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          containerAppName: ${{ secrets.CONTAINERAPP_NAME }}
+          resourceGroup: ${{ secrets.RESOURCE_GROUP }}
           targetPort: 3000
           ingress: external
           environmentVariables: |
