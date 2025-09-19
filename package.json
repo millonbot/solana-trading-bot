@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/bot.js",
     "dev": "nodemon src/bot.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "test": "echo \"Run npm start with proper environment variables to test the bot\" && exit 0",
+    "docker:build": "docker build -t solana-trading-bot .",
+    "docker:run": "docker run -d --env-file .env -p 8080:8080 solana-trading-bot"
   },
   "dependencies": {
     "@azure/cosmos": "^4.0.0",
