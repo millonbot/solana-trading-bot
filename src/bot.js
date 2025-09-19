@@ -1,7 +1,9 @@
 // ===================================
-// SOLANA INSTITUTIONAL TRADING BOT
-// Lógica de Order Flow + GPT-5-mini + Azure Cloud
+// SOLANA INSTITUTIONA
 // ===================================
+
+// Cargar variables de entorno
+require('dotenv').config();
 
 const { AzureOpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
@@ -10,6 +12,9 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const express = require('express');
 const WebSocket = require('ws');
+const TokenMigrationScanner = require('./TokenMigrationScanner');
+const TradingModeSelector = require('./TradingModeSelector');
+const TelegramInterface = require('./TelegramInterface');
 
 // ======== Función para conectarse a SolanaStreaming ========
 function connectSolanaStreaming(apiKey, handleMessage) {
@@ -43,6 +48,31 @@ function connectSolanaStreaming(apiKey, handleMessage) {
 // ======== Clase principal del bot ========
 class InstitutionalTradingBot {
   constructor() {
+    // ===== INICIALIZAR TRADING MODE SELECTOR =====
+    this.tradingMode = new TradingModeSelector();
+    
+    console.log('🎯 Bot iniciado con configuracion interactiva via Telegram');
+
+    // Telegram Bot: habilitar polling para recibir mensajes
+    const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!telegramToken) {
+      throw new Error('TELEGRAM_BOT_TOKEN no configurado en .env');
+    }
+    this.telegramBot = new TelegramBot(telegramToken, {
+      polling: true
+    });
+    // Manejo de errores de polling y confirmación de identidad
+    this.telegramBot.on('polling_error', (err) => {
+      console.error('Error de polling de Telegram:', err.message || err);
+    });
+    this.telegramBot.getMe()
+      .then((me) => console.log(`📡 Polling Telegram activo como @${me.username}`))
+      .catch((e) => console.warn('No se pudo obtener info del bot de Telegram:', e.message));
+    
+    // ===== Telegram Interface Initialization (single, correct instance) =====
+    this.telegramInterface = new TelegramInterface(this.telegramBot, this.tradingMode);
+    console.log('📱 TelegramInterface configurado - usar /start para configurar el bot');
+    
     // Azure OpenAI (GPT-5-mini)
     this.openAI = new AzureOpenAI({
       endpoint: process.env.ENDPOINT_URL,
@@ -56,15 +86,8 @@ class InstitutionalTradingBot {
     this.database = this.cosmos.database("SolanaTrading");
     this.container = this.database.container("TradingData");
 
-    // Solana Connection
-    this.solanaConnection = new Connection(process.env.SOLANA_RPC_URL, {
-      commitment: "confirmed"
-    });
-
-    // Telegram Bot (📌 activado con polling en lugar de webhook)
-    this.telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-      polling: true
-    });
+    // Usar la conexión de Solana del TradingModeSelector
+    this.solanaConnection = this.tradingMode.solanaConnection;
 
     // Configuración institucional
     this.config = {
@@ -86,30 +109,18 @@ class InstitutionalTradingBot {
 
     this.positions = new Map();
     this.isRunning = false;
-    this.stats = { totalTrades: 0, winRate: 0, totalPnL: 0, lastAnalysis: null };
+    this.stats = { totalTrades: 0, winRate: 0, totalPnL: 0, lastAnalysis: null }; 
 
-    // Conectar a SolanaStreaming
-    const solanaApiKey = process.env.SOLANASTREAMING_API_KEY;
-    connectSolanaStreaming(solanaApiKey, (event) => {
-      const tokenAddress = event?.params?.pair?.baseToken?.account;
-      if (tokenAddress && this.isRunning) {
-        this.analyzeToken(tokenAddress, false)
-          .then((decision) => {
-            console.log('Análisis automático de nuevo par:', tokenAddress, decision);
-          })
-          .catch((err) => {
-            console.error('Error analizando nuevo par', tokenAddress, err);
-          });
-      } else if (tokenAddress && !this.isRunning) {
-        console.log('Bot pausado - omitiendo análisis de token:', tokenAddress);
-      }
+    // Inicializar TokenMigrationScanner avanzado
+    this.migrationScanner = new TokenMigrationScanner({
+      rpcUrl: process.env.SOLANA_RPC_URL,
+      onMigrationDetected: (migrationData) => this.handleNewMigration(migrationData)
     });
 
-    this.setupTelegramCommands();
+    // ===== COMANDOS TELEGRAM BÁSICOS MANTENIDOS =====
+    this.setupBasicTelegramCommands();
     this.startWebServer();
-  }
-
-  // ===================================
+  }  // ===================================
   // AQUÍ VAN TODOS LOS MÉTODOS DEL BOT
   // (analyzeToken, getRealTimeOrderFlow, validateInstitutionalFilters,
   // calculateQuantMetrics, performInstitutionalGPTAnalysis, etc.)
@@ -117,10 +128,84 @@ class InstitutionalTradingBot {
   // ⚡ Los mantengo igual que en tu versión anterior
   // ===================================
 
-  setupTelegramCommands() {
+  async handleNewMigration(migrationData) {
+    // Verificar que el bot esté configurado y corriendo
+    if (!this.tradingMode.isConfigured()) {
+      console.log('🔴 Bot no configurado - omitiendo migración:', migrationData.tokenData.address);
+      return;
+    }
+    
+    if (!this.tradingMode.isRunning()) {
+      console.log('🔴 Bot pausado - omitiendo migración:', migrationData.tokenData.address);
+      return;
+    }
+
+    console.log('🔥 Nueva migración detectada:', migrationData.tokenData.address);
+    
+    try {
+      // Analizar el token con GPT-5 Mini
+      const analysis = await this.analyzeToken(migrationData.tokenData.address, false);
+      
+      // Log del análisis
+      console.log(`📊 Análisis completado para ${migrationData.tokenData.symbol}:`, {
+        action: analysis.action,
+        confidence: analysis.confidence,
+        reasoning: analysis.reasoning
+      });
+
+      // Si es una oportunidad de trading, notificar
+      if (analysis.action === 'BUY' && analysis.confidence > 7) {
+        await this.notifyTradingOpportunity(migrationData.tokenData, analysis);
+      }
+
+    } catch (error) {
+      console.error('❌ Error analizando nueva migración:', error.message);
+    }
+  }
+
+  async notifyTradingOpportunity(tokenData, analysis) {
+    // Enviar notificación a Telegram si está configurado
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (chatId && this.telegramBot) {
+      const message = `
+🚨 **OPORTUNIDAD DE TRADING DETECTADA**
+
+🪙 **Token:** ${tokenData.symbol} (${tokenData.name})
+📍 **Contract:** \`${tokenData.address}\`
+📊 **Confianza:** ${analysis.confidence}/10
+
+💰 **Datos del Token:**
+• Liquidez: $${tokenData.liquidityUSD?.toLocaleString()}
+• Market Cap: $${tokenData.marketCap?.toLocaleString()}
+• Holders: ${tokenData.holderCount}
+• Riesgo: ${tokenData.riskScore}/100
+
+🧠 **Análisis GPT-5:**
+${analysis.reasoning}
+
+⏰ **Detectado:** ${new Date().toLocaleString()}
+      `;
+
+      try {
+        await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        console.log('📱 Notificación enviada a Telegram');
+      } catch (error) {
+        console.error('❌ Error enviando notificación a Telegram:', error.message);
+      }
+    }
+  }
+
+  setupBasicTelegramCommands() {
+    // Solo comandos básicos que no interfieren con TelegramInterface
+    
     this.telegramBot.onText(/\/analyze (.+)/, async (msg, match) => {
       const chatId = msg.chat.id;
       const tokenAddress = match[1];
+
+      if (!this.tradingMode.isConfigured()) {
+        await this.telegramBot.sendMessage(chatId, 'Bot no configurado. Usar /start para configurar primero.');
+        return;
+      }
 
       await this.telegramBot.sendMessage(chatId, `Analizando token: ${tokenAddress}...`);
 
@@ -146,72 +231,32 @@ ${new Date().toLocaleString()}
       }
     });
 
-    this.telegramBot.onText(/\/stats/, async (msg) => {
-      const chatId = msg.chat.id;
-      const message = `
-**ESTADÍSTICAS DEL BOT**
-Estado: ${this.isRunning ? 'Activo' : 'Inactivo'}
-Total Trades: ${this.stats.totalTrades}
-Win Rate: ${this.stats.winRate}%
-PnL Total: $${this.stats.totalPnL}
-Equity: $${this.config.EQUITY_USD}
-Última actualización: ${new Date().toLocaleString()}
-      `;
-      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-    });
-
     this.telegramBot.onText(/\/help/, async (msg) => {
       const chatId = msg.chat.id;
+      const configured = this.tradingMode.isConfigured();
+      const running = this.tradingMode.isRunning();
+      
       const message = `
-**SOLANA TRADING BOT**
-Comandos:
-\`/analyze [token]\`
-\`/stats\`
-\`/help\`
-\`/start\` - Activar el bot
-\`/stop\` - Desactivar el bot
-\`/run\` - Ejecutar análisis (alias de start)
-      `;
-      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-    });
+**SOLANA TRADING BOT INTERACTIVO**
 
-    this.telegramBot.onText(/\/start/, async (msg) => {
-      const chatId = msg.chat.id;
-      this.isRunning = true;
-      const message = `
-🟢 **BOT ACTIVADO**
-El bot está ahora ejecutándose y analizando tokens automáticamente.
-Estado: Activo ✅
-Timestamp: ${new Date().toLocaleString()}
-      `;
-      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-      console.log('Bot activado vía Telegram por usuario:', msg.from?.username || msg.from?.id);
-    });
+**Estado actual:**
+• Configurado: ${configured ? 'Si' : 'No'}
+• Ejecutandose: ${running ? 'Si' : 'No'}
+• Modo: ${this.tradingMode.getMode().isPaperTrading ? 'PAPEL' : 'REAL'}
 
-    this.telegramBot.onText(/\/stop/, async (msg) => {
-      const chatId = msg.chat.id;
-      this.isRunning = false;
-      const message = `
-🔴 **BOT DESACTIVADO**
-El bot ha sido pausado y no realizará análisis automáticos.
-Estado: Inactivo ⏸️
-Timestamp: ${new Date().toLocaleString()}
-      `;
-      await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-      console.log('Bot desactivado vía Telegram por usuario:', msg.from?.username || msg.from?.id);
-    });
+**Comandos principales:**
+\`/start\` - Configurar e iniciar bot (uso el menu interactivo)
+\`/analyze [token]\` - Analizar token específico
+\`/help\` - Mostrar esta ayuda
 
-    this.telegramBot.onText(/\/run/, async (msg) => {
-      const chatId = msg.chat.id;
-      this.isRunning = true;
-      const message = `
-⚡ **BOT EJECUTÁNDOSE**
-Comando 'run' ejecutado exitosamente.
-Estado: Activo y ejecutando análisis ✅
-Timestamp: ${new Date().toLocaleString()}
+**Configuracion interactiva:**
+Usa /start para acceder al menu completo de configuracion
+donde puedes seleccionar modo trading, configurar parametros,
+iniciar/detener el bot y mas.
+
+**Version:** Bot con configuracion dinamica via Telegram
       `;
       await this.telegramBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-      console.log('Bot ejecutado vía comando /run por usuario:', msg.from?.username || msg.from?.id);
     });
   }
 
