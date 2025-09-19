@@ -23,6 +23,19 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Configure Container App secrets
+        uses: azure/cli@v1
+        with:
+          inlineScript: |
+            az containerapp secret set \
+              --name ${{ secrets.CONTAINER_APP_NAME }} \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --secrets \
+                TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
+                TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }} \
+                COSMOS_DB_CONNECTION_STRING=${{ secrets.COSMOS_DB_CONNECTION_STRING }} \
+                SOLANA_RPC_URL=${{ secrets.SOLANA_RPC_URL }}
+
       - name: Build, Push, and Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v1
         with:
@@ -33,11 +46,6 @@ jobs:
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
           targetPort: 3000
           ingress: external
-          secrets: |
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
-            COSMOS_DB_CONNECTION_STRING=${{ secrets.COSMOS_DB_CONNECTION_STRING }}
-            SOLANA_RPC_URL=${{ secrets.SOLANA_RPC_URL }}
           environmentVariables: |
             TELEGRAM_BOT_TOKEN=secretref:TELEGRAM_BOT_TOKEN
             TELEGRAM_MODE=webhook
