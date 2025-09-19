@@ -1,5 +1,6 @@
+
 name: agent
-on: push
+on: [push, workflow_dispatch]
 permissions: { id-token: write, contents: read }
 
 jobs:
@@ -17,7 +18,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: ACR login
-        run: az acr login --name $(echo ${{ secrets.ACR_LOGIN_SERVER }} | cut -d. -f1)
+        run: az acr login --name $(echo "${{ secrets.ACR_LOGIN_SERVER }}" | cut -d. -f1)
 
       - name: Build and push
         run: |
@@ -30,3 +31,4 @@ jobs:
           az containerapp update \
             -g "${{ secrets.RESOURCE_GROUP }}" \
             -n "${{ secrets.CONTAINERAPP_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
