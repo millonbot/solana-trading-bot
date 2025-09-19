@@ -34,7 +34,7 @@ jobs:
             --parameters '{
               "name": "github-actions-main-auto",
               "issuer": "https://token.actions.githubusercontent.com",
-              "subject": "repo:david/solana-trading-bot:ref:refs/heads/main", 
+              "subject": "repo:millonbot/solana-trading-bot:ref:refs/heads/main", 
               "audiences": ["api://AzureADTokenExchange"],
               "description": "Auto-created GitHub Actions OIDC for main branch"
             }' || echo "Federated credential may already exist or SP login failed"
