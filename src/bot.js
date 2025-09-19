@@ -48,31 +48,6 @@ function connectSolanaStreaming(apiKey, handleMessage) {
 // ======== Clase principal del bot ========
 class InstitutionalTradingBot {
   constructor() {
-    // ===== INICIALIZAR TRADING MODE SELECTOR =====
-    this.tradingMode = new TradingModeSelector();
-    
-    console.log('🎯 Bot iniciado con configuracion interactiva via Telegram');
-
-    // Telegram Bot: habilitar polling para recibir mensajes
-    const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (!telegramToken) {
-      throw new Error('TELEGRAM_BOT_TOKEN no configurado en .env');
-    }
-    this.telegramBot = new TelegramBot(telegramToken, {
-      polling: true
-    });
-    // Manejo de errores de polling y confirmación de identidad
-    this.telegramBot.on('polling_error', (err) => {
-      console.error('Error de polling de Telegram:', err.message || err);
-    });
-    this.telegramBot.getMe()
-      .then((me) => console.log(`📡 Polling Telegram activo como @${me.username}`))
-      .catch((e) => console.warn('No se pudo obtener info del bot de Telegram:', e.message));
-    
-    // ===== Telegram Interface Initialization (single, correct instance) =====
-    this.telegramInterface = new TelegramInterface(this.telegramBot, this.tradingMode);
-    console.log('📱 TelegramInterface configurado - usar /start para configurar el bot');
-    
     // Azure OpenAI (GPT-5-mini)
     this.openAI = new AzureOpenAI({
       endpoint: process.env.ENDPOINT_URL,
@@ -263,12 +238,38 @@ iniciar/detener el bot y mas.
   startWebServer() {
     const app = express();
     app.use(express.json());
+    // Endpoint de webhook para Telegram si está habilitado
+    if (process.env.TELEGRAM_MODE === 'webhook' && process.env.TELEGRAM_WEBHOOK_URL) {
+      const secret = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+      app.post('/telegram/webhook', (req, res) => {
+        if (secret) {
+          const header = req.get('x-telegram-bot-api-secret-token');
+          if (header !== secret) {
+            return res.sendStatus(401);
+          }
+        }
+        try {
+          this.telegramBot.processUpdate(req.body);
+        } catch (e) {
+          console.error('Error procesando update de Telegram:', e.message || e);
+        }
+        res.sendStatus(200);
+      });
+    }
     app.get('/health', (req, res) => {
       res.json({ status: 'healthy', bot_running: this.isRunning, timestamp: new Date().toISOString() });
     });
     const port = process.env.PORT || 8080;
     app.listen(port, () => {
       console.log(`Bot server running on port ${port}`);
+      // Configurar webhook al arrancar el servidor si aplica
+      if (process.env.TELEGRAM_MODE === 'webhook' && process.env.TELEGRAM_WEBHOOK_URL) {
+        const url = process.env.TELEGRAM_WEBHOOK_URL;
+        const secret = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+        this.telegramBot.setWebHook(url, secret ? { secret_token: secret } : undefined)
+          .then(() => console.log(`Webhook de Telegram configurado: ${url}`))
+          .catch((e) => console.error('No se pudo configurar webhook de Telegram:', e.message || e));
+      }
     });
   }
 }

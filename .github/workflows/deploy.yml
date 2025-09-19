@@ -1,45 +1,46 @@
-name: Deploy to Azure Container Apps
+name: Build and Deploy to Azure Container Apps
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
-env:
-  AZURE_CONTAINER_APP_NAME: tradingbot-app
-  AZURE_RESOURCE_GROUP: trading-bot-rg
-  AZURE_REGISTRY: tradingbotacr251.azurecr.io
-  AZURE_CORE_OUTPUT: none
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
 
       - name: Azure Login
-        uses: azure/login@v2
+        uses: azure/login@v1
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Login to Azure Container Registry
-        run: |
-          az acr login --name tradingbotacr251
-
-      - name: Build and push container image
-        run: |
-          docker build . -t ${{ env.AZURE_REGISTRY }}/solana-trading-bot:${{ github.sha }}
-          docker build . -t ${{ env.AZURE_REGISTRY }}/solana-trading-bot:latest
-          docker push ${{ env.AZURE_REGISTRY }}/solana-trading-bot:${{ github.sha }}
-          docker push ${{ env.AZURE_REGISTRY }}/solana-trading-bot:latest
-
-      - name: Deploy to Container Apps
-        run: |
-          az config set extension.use_dynamic_install=yes_without_prompt
-          az containerapp update \
-            --name ${{ env.AZURE_CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image ${{ env.AZURE_REGISTRY }}/solana-trading-bot:${{ github.sha }}
+      - name: Build, Push, and Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          acrName: ${{ secrets.ACR_NAME }}
+          imageToBuild: ${{ secrets.ACR_NAME }}.azurecr.io/solana-trading-bot:${{ github.sha }}
+          dockerfilePath: ./Dockerfile
+          containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          targetPort: 3000
+          ingress: external
+          secrets: |
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            TELEGRAM_WEBHOOK_URL=${{ secrets.TELEGRAM_WEBHOOK_URL }}
+            COSMOS_DB_CONNECTION_STRING=${{ secrets.COSMOS_DB_CONNECTION_STRING }}
+            SOLANA_RPC_URL=${{ secrets.SOLANA_RPC_URL }}
+          environmentVariables: |
+            TELEGRAM_BOT_TOKEN=secretref:TELEGRAM_BOT_TOKEN
+            TELEGRAM_MODE=webhook
+            TELEGRAM_WEBHOOK_URL=secretref:TELEGRAM_WEBHOOK_URL
+            COSMOS_DB_CONNECTION_STRING=secretref:COSMOS_DB_CONNECTION_STRING
+            SOLANA_RPC_URL=secretref:SOLANA_RPC_URL
